@@ -1,0 +1,4 @@
+(executable
+ (public_name oclox)
+ (name main)
+ (libraries oclox))
