@@ -1,4 +1,5 @@
 (executable
  (public_name oclox)
  (name main)
- (libraries oclox))
+ (libraries oclox)
+ (preprocess (pps ppx_deriving.show ppx_deriving.ord)))

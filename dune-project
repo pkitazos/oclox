@@ -5,11 +5,11 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github pkitazos/oclox))
 
-(authors "Author Name <author@example.com>")
+(authors "Petros Kitazos petroskitazos@gmail.com")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Petros Kitazos petroskitazos@gmail.com")
 
 (license LICENSE)
 
@@ -17,8 +17,8 @@
 
 (package
  (name oclox)
- (synopsis "A short synopsis")
- (description "A longer description")
+ (synopsis "The Lox Programming Language built in OCaml")
+ (description "The Lox Programming Language built in OCaml (hopefully)")
  (depends ocaml)
  (tags
   ("add topics" "to describe" your project)))
