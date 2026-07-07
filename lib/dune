@@ -1,2 +1,3 @@
 (library
- (name oclox))
+ (name oclox)
+ (preprocess (pps ppx_deriving.show)))
