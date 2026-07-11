@@ -27,6 +27,12 @@ type scan_res = Tok of token | Skip | Error of Error.my_error
 
 let to_str = String.make 1
 
+let chars_to_str (chars : char list) =
+  List.map to_str chars |> List.rev |> String.concat ""
+
+let maybe_get (str : string) (i : int) : char option =
+  try Some (String.get str i) with _ -> None
+
 let is_alpha (c : char) : bool =
   (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 
@@ -45,17 +51,70 @@ let rec scan_string (lexemes : char list) (str : string) (line : int) :
   | '\n' :: rest -> scan_string rest str (line + 1)
   | '\\' :: '\"' :: rest -> scan_string rest (str ^ "\"") line
   | char :: rest -> scan_string rest (str ^ to_str char) line
-  | [] -> Error  { line; column = 0; msg = "unterminated string"}
+  | [] -> Error { line; column = 0; msg = "unterminated string" }
+
+type ctx = { source : string; current : int; line : int }
+
+let get_from_src (ctx : ctx) : char option = maybe_get ctx.source ctx.current
+
+let rec scan_string_2 (ctx : ctx) (chars : char list) :
+    (ctx * string, Error.my_error) result =
+  try
+    match String.get ctx.source ctx.current with
+    | '"' ->
+        Ok
+          ( { ctx with current = ctx.current + 1 },
+            List.map to_str chars |> List.rev |> String.concat "" )
+    | '\n' ->
+        scan_string_2
+          {
+            source = ctx.source;
+            current = ctx.current + 1;
+            line = ctx.line + 1;
+          }
+          ('\n' :: chars)
+    | '\\' ->
+        if String.get ctx.source (ctx.current + 1) == '\"' then
+          scan_string_2 { ctx with current = ctx.current + 1 } ('\"' :: chars)
+        else scan_string_2 { ctx with current = ctx.current + 1 } ('\\' :: chars)
+    | char ->
+        scan_string_2 { ctx with current = ctx.current + 1 } (char :: chars)
+  with Invalid_argument _ ->
+    Error { line = ctx.line; column = 0; msg = "unterminated string" }
 
 let rec scan_number (lexemes : char list) (str : string) (line : int)
-    (is_float : bool) : (string * char list * int * bool, Error.my_error) result =
+    (is_float : bool) : (string * char list * int * bool, Error.my_error) result
+    =
   match lexemes with
   | [] -> Ok (str, [], line, is_float)
   | c :: rest when is_digit c -> scan_number rest (str ^ to_str c) line is_float
   | '.' :: rest when not is_float -> scan_number rest (str ^ ".") line true
   | c :: rest when is_alpha c || c == '.' || c == '_' ->
-      Error { line; column = 0; msg = "not a valid number"}
+      Error { line; column = 0; msg = "not a valid number" }
   | c :: rest -> Ok (str, rest, line, is_float)
+
+let rec scan_number_2 (ctx : ctx) (chars : char list) (in_float : bool) :
+    (ctx * num, Error.my_error) result =
+  try
+    match String.get ctx.source ctx.current with
+    | '.' when not in_float ->
+        scan_number_2 { ctx with current = ctx.current + 1 } ('.' :: chars) true
+    | '.' when in_float ->
+        Error { line = ctx.line; column = 0; msg = "already in a float" }
+    | c when is_digit c ->
+        scan_number_2 { ctx with current = ctx.current + 1 } (c :: chars) true
+    | c when is_alpha c || c == '_' ->
+        Error { line = ctx.line; column = 0; msg = "not a valid number" }
+    | c ->
+        let num_string =
+          List.map to_str chars |> List.rev |> String.concat ""
+        in
+        Ok
+          ( { ctx with current = ctx.current + 1 },
+            if in_float then Float (float_of_string num_string)
+            else Int (int_of_string num_string) )
+  with Invalid_argument _ ->
+    Error { line = ctx.line; column = 0; msg = "unterminated string" }
 
 let rec scan_identifier (lexemes : char list) (str : string) :
     string * char list =
@@ -64,6 +123,161 @@ let rec scan_identifier (lexemes : char list) (str : string) :
   | c :: rest when is_alpha c || is_digit c ->
       scan_identifier rest (str ^ to_str c)
   | rest -> (str, rest)
+
+let rec scan_identifier2 (ctx : ctx) (chars : char list) : ctx * string =
+  match get_from_src ctx with
+  | Some c when is_alpha c || is_digit c ->
+      scan_identifier2 { ctx with current = ctx.current + 1 } (c :: chars)
+  | Some c -> (ctx, chars_to_str chars)
+  | None -> (ctx, chars_to_str chars)
+
+let scan (source : string) : (token list, Error.my_error) result = Ok []
+
+type scan_res2 =
+  | Tok2 of { tok : token; current' : int; line' : int }
+  | Err2 of Error.my_error
+  | Skip2 of { current' : int; line' : int }
+
+type pos = { current : int; line : int }
+
+let rec consume_comment (source : string) (current : int) : int =
+  match String.get source current with
+  | '\n' -> current + 1
+  | c -> consume_comment source (current + 1)
+
+let rec scan_loop (source : string) (tokens : token list) (line : int)
+    (column : int) (start : int) (current : int) :
+    (token list, Error.my_error) result =
+  let ctx = { source; current; line } in
+
+  let lift_tok (tok : token) : scan_res2 =
+    Tok2 { tok; current' = current; line' = line }
+  in
+
+  let make_tok (typ : token_type) (lexeme : string) : token =
+    { typ; lexeme; literal = None; line }
+  in
+
+  let match_next (match_char : char) : bool =
+    String.get source (current + 1) == match_char
+  in
+
+  match get_from_src ctx with
+  | None -> Ok tokens
+  | Some c -> (
+      let res : scan_res2 =
+        match c with
+        | '(' -> lift_tok (make_tok LEFT_PAREN "(")
+        | ')' -> lift_tok (make_tok RIGHT_PAREN ")")
+        | '{' -> lift_tok (make_tok LEFT_BRACE "{")
+        | '}' -> lift_tok (make_tok RIGHT_BRACE "}")
+        | ',' -> lift_tok (make_tok COMMA ",")
+        | '.' -> lift_tok (make_tok DOT ".")
+        | '-' -> lift_tok (make_tok MINUS "-")
+        | '+' -> lift_tok (make_tok PLUS "+")
+        | ';' -> lift_tok (make_tok SEMICOLON ";")
+        | '*' -> lift_tok (make_tok STAR "*")
+        (* maybe two-char operators *)
+        | '!' ->
+            if match_next '=' then
+              Tok2
+                {
+                  tok = make_tok BANG_EQUAL "!=";
+                  current' = current + 2;
+                  line' = line;
+                }
+            else lift_tok (make_tok BANG "!")
+        | '=' ->
+            if match_next '=' then
+              Tok2
+                {
+                  tok = make_tok EQUAL_EQUAL "==";
+                  current' = current + 2;
+                  line' = line;
+                }
+            else lift_tok (make_tok EQUAL "=")
+        | '<' ->
+            if match_next '=' then
+              Tok2
+                {
+                  tok = make_tok LESS_EQUAL "<=";
+                  current' = current + 2;
+                  line' = line;
+                }
+            else lift_tok (make_tok LESS "<")
+        | '>' ->
+            if match_next '=' then
+              Tok2
+                {
+                  tok = make_tok GREATER_EQUAL ">=";
+                  current' = current + 2;
+                  line' = line;
+                }
+            else lift_tok (make_tok GREATER ">")
+        (* maybe comments *)
+        | '/' ->
+            if match_next '/' then
+              Skip2
+                { current' = consume_comment source current; line' = line + 1 }
+            else lift_tok (make_tok SLASH "/")
+        (* whitespace & friends *)
+        | ' ' | '\r' | '\t' -> Skip2 { current' = current + 1; line' = line }
+        | '\n' -> Skip2 { current' = current + 1; line' = line + 1 }
+        (* strings *)
+        | '"' -> (
+            match scan_string_2 { source; current; line } [] with
+            | Ok (ctx, str) ->
+                Tok2
+                  {
+                    tok =
+                      {
+                        typ = STRING;
+                        lexeme = String.sub source current ctx.current;
+                        literal = Some (Str str);
+                        line = ctx.line;
+                      };
+                    current' = ctx.current;
+                    line' = ctx.line;
+                  }
+            | Error err -> Err2 err)
+        | c when is_digit c -> (
+            match scan_number_2 { source; current; line } [] false with
+            | Ok (ctx, num) ->
+                Tok2
+                  {
+                    tok =
+                      {
+                        typ = NUMBER;
+                        lexeme = String.sub source current ctx.current;
+                        literal = Some (Num num);
+                        line = ctx.line;
+                      };
+                    current' = ctx.current;
+                    line' = ctx.line;
+                  }
+            | Error err -> Err2 err)
+        | c when is_alpha c || c == '_' ->
+            let ctx, id = scan_identifier2 { source; current; line } [] in
+            Tok2
+              {
+                tok =
+                  {
+                    typ = IDENTIFIER;
+                    lexeme = String.sub source current ctx.current;
+                    literal = Some (Str id);
+                    line = ctx.line;
+                  };
+                current' = ctx.current;
+                line' = ctx.line;
+              }
+        | _ -> Err2 { line; column = 0; msg = "unexpected character" }
+      in
+      match res with
+      | Tok2 { tok; current'; line' } ->
+          scan_loop source (tok :: tokens) line' column current' 0
+      | Skip2 { current'; line' } ->
+          scan_loop source tokens line' column current' 0
+      | Err2 err -> Error err)
 
 let rec scan_tokens (lexemes : char list) (tokens : token list) (start : int)
     (current : int) (line : int) (at_end : int -> int) :
@@ -147,7 +361,11 @@ let rec scan_tokens (lexemes : char list) (tokens : token list) (start : int)
             match StrMap.find_opt str keywords with
             | Some keyword -> (make_tok keyword str, rest, line)
             | None -> (make_tok IDENTIFIER str, rest, line))
-        | c -> (Error {line; column = 0; msg = "Unexpected character. " ^ to_str c}, rest, line)
+        | c ->
+            ( Error
+                { line; column = 0; msg = "Unexpected character. " ^ to_str c },
+              rest,
+              line )
       in
       match next_token with
       | Tok token ->
