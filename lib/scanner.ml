@@ -23,7 +23,7 @@ let keywords_map () =
          ("while", WHILE);
        ]
 
-type scan_res = Tok of token | Skip | Error of string
+type scan_res = Tok of token | Skip | Error of Error.my_error
 
 let to_str = String.make 1
 
@@ -39,22 +39,22 @@ let rec consume_until_newline (lexemes : char list) : char list =
   | _ :: rest -> consume_until_newline rest
 
 let rec scan_string (lexemes : char list) (str : string) (line : int) :
-    (string * char list * int, unit) result =
+    (string * char list * int, Error.my_error) result =
   match lexemes with
   | '"' :: rest -> Ok (str, rest, line)
   | '\n' :: rest -> scan_string rest str (line + 1)
   | '\\' :: '\"' :: rest -> scan_string rest (str ^ "\"") line
   | char :: rest -> scan_string rest (str ^ to_str char) line
-  | [] -> Error ()
+  | [] -> Error  { line; column = 0; msg = "unterminated string"}
 
 let rec scan_number (lexemes : char list) (str : string) (line : int)
-    (is_float : bool) : (string * char list * int * bool, unit) result =
+    (is_float : bool) : (string * char list * int * bool, Error.my_error) result =
   match lexemes with
   | [] -> Ok (str, [], line, is_float)
   | c :: rest when is_digit c -> scan_number rest (str ^ to_str c) line is_float
   | '.' :: rest when not is_float -> scan_number rest (str ^ ".") line true
   | c :: rest when is_alpha c || c == '.' || c == '_' ->
-      Error () (* not a valid number *)
+      Error { line; column = 0; msg = "not a valid number"}
   | c :: rest -> Ok (str, rest, line, is_float)
 
 let rec scan_identifier (lexemes : char list) (str : string) :
@@ -67,7 +67,7 @@ let rec scan_identifier (lexemes : char list) (str : string) :
 
 let rec scan_tokens (lexemes : char list) (tokens : token list) (start : int)
     (current : int) (line : int) (at_end : int -> int) :
-    (token list, string) result =
+    (token list, Error.my_error) result =
   let keywords = keywords_map () in
 
   let make_tok (typ : token_type) (lexeme : string) =
@@ -124,7 +124,7 @@ let rec scan_tokens (lexemes : char list) (tokens : token list) (start : int)
                     },
                   rest,
                   line )
-            | Error _ -> (Error "Unterminated string.", rest, line))
+            | Error err -> (Error err, rest, line))
         | c when is_digit c -> (
             match scan_number (c :: rest) "" line false with
             | Ok (str, rest, line, is_float) ->
@@ -141,16 +141,16 @@ let rec scan_tokens (lexemes : char list) (tokens : token list) (start : int)
                     },
                   rest,
                   line )
-            | Error _ -> (Error "Bad number.", rest, line))
+            | Error err -> (Error err, rest, line))
         | c when is_alpha c -> (
             let str, rest = scan_identifier (c :: rest) "" in
             match StrMap.find_opt str keywords with
             | Some keyword -> (make_tok keyword str, rest, line)
             | None -> (make_tok IDENTIFIER str, rest, line))
-        | c -> (Error ("Unexpected character. " ^ to_str c), rest, line)
+        | c -> (Error {line; column = 0; msg = "Unexpected character. " ^ to_str c}, rest, line)
       in
       match next_token with
       | Tok token ->
           scan_tokens rest (token :: tokens) current (current + 1) line at_end
       | Skip -> scan_tokens rest tokens current (current + 1) line at_end
-      | Error err -> Error ("Unexpected character. ++ " ^ err))
+      | Error err -> Error err)

@@ -1,10 +1,5 @@
 open Oclox
 
-let report line where msg =
-  print_endline ("[line " ^ line ^ "] Error" ^ where ^ ": " ^ msg)
-
-let error line msg = report line "" msg
-
 let rec read_file ic acc =
   try read_file ic (input_line ic :: acc)
   with End_of_file ->
@@ -15,7 +10,7 @@ let run s =
   let lexemes = List.of_seq (String.to_seq s) in
   match Scanner.scan_tokens lexemes [] 0 0 1 (fun _ -> 0) with
   | Ok tokens -> List.iter Token.show_token (List.rev tokens)
-  | Error msg -> error "?" msg
+  | Error err -> Error.error2 err
 
 let run_prompt () =
   while true do
