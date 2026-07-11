@@ -1,5 +1,5 @@
 
-type my_error = {
+type t = {
   line: int;
   column: int;
   msg: string

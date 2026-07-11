@@ -7,8 +7,7 @@ let rec read_file ic acc =
     String.concat "\n" acc
 
 let run s =
-  let lexemes = List.of_seq (String.to_seq s) in
-  match Scanner.scan_tokens lexemes [] 0 0 1 (fun _ -> 0) with
+  match Scanner.scan_tokens s with
   | Ok tokens -> List.iter Token.show_token (List.rev tokens)
   | Error err -> Error.error2 err
 
