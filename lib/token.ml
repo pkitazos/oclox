@@ -1,5 +1,12 @@
-type num = Int of int | Float of float [@@deriving show]
-type lit = Num of num | Str of string [@@deriving show]
+type num =
+  | Int of int
+  | Float of float
+[@@deriving show]
+
+type lit =
+  | Num of num
+  | Str of string
+[@@deriving show]
 
 type token_type =
   | (* Single-character tokens. *)
@@ -47,14 +54,21 @@ type token_type =
   | EOF
 [@@deriving show]
 
-type token = {
-  typ : token_type;
-  lexeme : string;
-  literal : lit option;
-  line : int;
-}
+type t =
+  { typ : token_type
+  ; lexeme : string
+  ; literal : lit option
+  ; line : int
+  }
 
 let show_token token =
   print_endline
-    (show_token_type token.typ ^ " " ^ token.lexeme ^ " "
-    ^ match token.literal with None -> "" | Some lit -> show_lit lit)
+    (show_token_type token.typ
+     ^ " "
+     ^ token.lexeme
+     ^ " "
+     ^
+     match token.literal with
+     | None -> ""
+     | Some lit -> show_lit lit)
+;;
