@@ -9,3 +9,4 @@ let report line where msg =
 ;;
 
 let error err = report (string_of_int err.line) "" err.msg
+let make ~line ~column msg = { line; column; msg }

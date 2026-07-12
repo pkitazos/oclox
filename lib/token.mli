@@ -1,13 +1,3 @@
-type num =
-  | Int of int
-  | Float of float
-[@@deriving show]
-
-type lit =
-  | Num of num
-  | Str of string
-[@@deriving show]
-
 type token_typ =
   | (* Single-character tokens. *)
     LEFT_PAREN
@@ -54,6 +44,16 @@ type token_typ =
   | EOF
 [@@deriving show]
 
+type num =
+  | Int of int
+  | Float of float
+[@@deriving show]
+
+type lit =
+  | Num of num
+  | Str of string
+[@@deriving show]
+
 type t =
   { typ : token_typ
   ; lexeme : string
@@ -61,16 +61,5 @@ type t =
   ; line : int
   }
 
-let make ~typ ~lexeme ~literal ~line = { typ; lexeme; literal; line }
-
-let to_string token =
-  Printf.sprintf
-    "%s %s %s"
-    (show_token_typ token.typ)
-    token.lexeme
-    (match token.literal with
-     | None -> ""
-     | Some lit -> show_lit lit)
-;;
-
-let print token = print_endline (to_string token)
+val make : typ:token_typ -> lexeme:string -> literal:lit option -> line:int -> t
+val print : t -> unit

@@ -9,7 +9,7 @@ let rec read_file ic acc =
 
 let run s =
   match Scanner.scan_tokens s with
-  | Ok tokens -> List.iter Token.show_token tokens
+  | Ok tokens -> List.iter Token.print tokens
   | Error err -> Error.error err
 ;;
 
