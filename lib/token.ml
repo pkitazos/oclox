@@ -1,14 +1,21 @@
-type num =
+type t =
+  { typ : token_typ
+  ; lexeme : string
+  ; literal : lit option
+  ; line : int
+  }
+
+and num =
   | Int of int
   | Float of float
 [@@deriving show]
 
-type lit =
+and lit =
   | Num of num
   | Str of string
 [@@deriving show]
 
-type token_typ =
+and token_typ =
   | (* Single-character tokens. *)
     LEFT_PAREN
   | RIGHT_PAREN
@@ -53,13 +60,6 @@ type token_typ =
   | WHILE
   | EOF
 [@@deriving show]
-
-type t =
-  { typ : token_typ
-  ; lexeme : string
-  ; literal : lit option
-  ; line : int
-  }
 
 let make ~typ ~lexeme ~literal ~line = { typ; lexeme; literal; line }
 
