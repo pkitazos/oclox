@@ -1,31 +1,19 @@
 open Oclox
 
-let rec read_file ic acc =
-  try read_file ic (input_line ic :: acc) with
-  | End_of_file ->
-    close_in ic;
-    String.concat "\n" acc
-;;
-
 let run s =
   match Scanner.scan_tokens s with
   | Ok tokens -> List.iter Token.print tokens
-  | Error err -> Error.error err
+  | Error err -> Error.report s err
 ;;
 
 let run_prompt () =
   while true do
     print_string "oclox> ";
-    let s = read_line () in
-    run s
+    run (read_line ())
   done
 ;;
 
-let run_file path =
-  let ic = open_in path in
-  let s = read_file ic [] in
-  run s
-;;
+let run_file path = run (In_channel.with_open_text path In_channel.input_all)
 
 let () =
   match Array.to_list Sys.argv with
