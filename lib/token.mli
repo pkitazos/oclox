@@ -62,4 +62,5 @@ type t =
   }
 
 val make : typ:token_typ -> lexeme:string -> literal:lit option -> line:int -> t
+val to_string : t -> string
 val print : t -> unit
