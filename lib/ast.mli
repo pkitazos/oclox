@@ -34,9 +34,9 @@ and operator =
   | LEq
   | GT
   | GEq
-  | Plus
-  | Minus
-  | Times
+  | Add
+  | Sub
+  | Mul
   | Div
 
 val to_string : t -> string

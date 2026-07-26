@@ -1,4 +1,6 @@
 type t
 
+type kind = Scan | Parse
+
 val report : string -> t -> unit
-val make : line:int -> column:int -> string -> t
+val make : kind:kind -> line:int -> column:int -> string -> t

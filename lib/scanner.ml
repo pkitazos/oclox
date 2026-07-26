@@ -68,7 +68,7 @@ let matches (ctx : ctx) (c : char) : ctx option =
   if peek ctx = Some c then Some (advance ctx) else None
 ;;
 
-let err_at (ctx : ctx) msg = Error.make ~line:ctx.line ~column:ctx.column msg
+let err_at (ctx : ctx) msg = Error.make ~kind:Scan ~line:ctx.line ~column:ctx.column msg
 
 let rec scan_string (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
   match peek ctx with

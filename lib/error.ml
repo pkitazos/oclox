@@ -1,8 +1,13 @@
 type t =
-  { line : int
+  { kind : kind
+  ; line : int
   ; column : int
   ; msg : string
   }
+
+and kind =
+  | Scan
+  | Parse
 
 let rec report (source : string) (err : t) =
   let line = get_error_line source err.line in
@@ -19,4 +24,4 @@ and get_error_line source line_num =
 
 and annotate_error_line line col_num = String.make (col_num - 1) ' ' ^ "^"
 
-let make ~line ~column msg = { line; column; msg }
+let make ~kind ~line ~column msg = { kind; line; column; msg }

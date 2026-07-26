@@ -39,9 +39,9 @@ and operator =
   | LEq
   | GT
   | GEq
-  | Plus
-  | Minus
-  | Times
+  | Add
+  | Sub
+  | Mul
   | Div
 [@@deriving show]
 
@@ -70,8 +70,8 @@ and op_to_string expr =
   | LEq -> "<="
   | GT -> ">"
   | GEq -> ">="
-  | Plus -> "+"
-  | Minus -> "-"
-  | Times -> "*"
+  | Add -> "+"
+  | Sub -> "-"
+  | Mul -> "*"
   | Div -> "/"
 ;;
