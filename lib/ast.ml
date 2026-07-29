@@ -1,7 +1,7 @@
 type t =
   | Lit of lit
   | Unary of unary
-  | Grouping of grouping
+  | Grouping of t
   | Binary of binary
 [@@deriving show]
 
@@ -17,8 +17,6 @@ and lit =
   | False
   | Nil
 [@@deriving show]
-
-and grouping = Expr of t [@@deriving show]
 
 and unary =
   | Not of t
@@ -47,7 +45,7 @@ and operator =
 
 let rec to_string = function
   | Lit l -> lit_to_string l
-  | Grouping (Expr e) -> Printf.sprintf "(group %s)" (to_string e)
+  | Grouping e -> Printf.sprintf "(group %s)" (to_string e)
   | Unary (Not e) -> Printf.sprintf "(! %s)" (to_string e)
   | Unary (Minus e) -> Printf.sprintf "(- %s)" (to_string e)
   | Binary { op; left; right } ->

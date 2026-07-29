@@ -1,10 +1,31 @@
 let ( let* ) = Result.bind
-let err_at line column msg = Error.make ~kind:Parse ~line ~column msg
+
+let err_at (tok : Token.t) msg =
+  Error.make ~kind:Parse ~line:tok.line ~column:tok.column msg
+;;
 
 let peek (tokens : Token.t list) =
   match tokens with
   | tok :: rest -> Some (tok, rest)
   | [] -> None
+;;
+
+let expect typ msg tokens =
+  match peek tokens with
+  | Some (tok, rest) when tok.typ = typ -> Ok rest
+  | Some (tok, _) -> Error (err_at tok msg)
+  (* Invariant: token lists always end with a single EOF token
+     this is guaranteed by [Scanner.scan_tokens]
+     Rules may therefore assume [peek] never returns None on well-formed input
+     a None means the invariant was broken. *)
+  | None -> failwith "unreachable: token list must end with EOF"
+;;
+
+let ast_lit_of_token_lit lit =
+  match lit with
+  | Token.Num (Token.Int n) -> Ast.Num (Ast.Int n)
+  | Token.Num (Token.Float n) -> Ast.Num (Ast.Float n)
+  | Token.Str str -> Ast.Str str
 ;;
 
 let equality_ops = [ Token.EQUAL_EQUAL, Ast.Eq; Token.BANG_EQUAL, Ast.NEq ]
@@ -19,6 +40,39 @@ let comparison_ops =
 
 let term_ops = [ Token.PLUS, Ast.Add; Token.MINUS, Ast.Sub ]
 let factor_ops = [ Token.SLASH, Ast.Div; Token.STAR, Ast.Mul ]
+let unary_ops = [ (Token.BANG, fun e -> Ast.Not e); (Token.MINUS, fun e -> Ast.Minus e) ]
+
+(* peek the next token and, if its type is in [ops],
+   return the mapped value along with the remaining tokens *)
+let peek_op ops tokens =
+  match peek tokens with
+  | Some (tok, rest) -> Option.map (fun op -> op, rest) (List.assoc_opt tok.typ ops)
+  | None -> None
+;;
+
+(* [left_assoc ~ops ~next] parses  `next ( op next )*`  folding LEFT, so
+   1 - 2 - 3 becomes ((1 - 2) - 3).
+   Right-associative operators would need a different combinator. *)
+
+let left_assoc ~ops ~next tokens =
+  let rec fold tokens acc =
+    let parser tokens acc = fold tokens acc in
+    match peek_op ops tokens with
+    | Some (op, rest) ->
+      let* expr, rest = next rest in
+      parser rest (Ast.Binary { left = acc; op; right = expr })
+    | None -> Ok (acc, tokens)
+  in
+  let* expr, rest = next tokens in
+  fold rest expr
+;;
+
+(* Each rule consumes a prefix of [tokens]
+   and returns its AST node plus the unconsumed remainder.
+
+   Rules never consume tokens they don't recognize. *)
+
+type parsed = (Ast.t * Token.t list, Error.t) result
 
 (*
     expression     → equality ;
@@ -32,63 +86,44 @@ let factor_ops = [ Token.SLASH, Ast.Div; Token.STAR, Ast.Mul ]
                    | "(" expression ")" ;
 *)
 
-let rec parse tokens : (Ast.t, Error.t) result =
-  let* expr, rest = parse_equality tokens in
-  match rest with
-  | [] -> Ok expr
-  | _ -> Error (err_at 1 1 "still tokens left?")
+let rec parse_expression tokens : parsed = parse_equality tokens
 
-and fold_left_if tokens acc parser' assoc_opt =
-  let parser tokens acc = fold_left_if tokens acc parser' assoc_opt in
-  match peek tokens with
-  | Some ({ typ }, rest) ->
-    (match List.assoc_opt typ assoc_opt with
-     | Some op ->
-       let* expr, rest = parser' rest in
-       parser rest (Ast.Binary { left = acc; op; right = expr })
-     | _ -> Ok (acc, tokens))
-  | _ -> Ok (acc, tokens)
+and parse_equality tokens : parsed =
+  left_assoc ~ops:equality_ops ~next:parse_comparison tokens
 
-and parse_equality tokens : (Ast.t * Token.t list, Error.t) result =
-  let* expr, rest = parse_comparison tokens in
-  fold_left_if rest expr parse_comparison equality_ops
+and parse_comparison tokens : parsed =
+  left_assoc ~ops:comparison_ops ~next:parse_term tokens
 
-and parse_comparison tokens : (Ast.t * Token.t list, Error.t) result =
-  let* expr, rest = parse_term tokens in
-  fold_left_if rest expr parse_term comparison_ops
+and parse_term tokens : parsed = left_assoc ~ops:term_ops ~next:parse_factor tokens
+and parse_factor tokens : parsed = left_assoc ~ops:factor_ops ~next:parse_unary tokens
 
-and parse_term tokens : (Ast.t * Token.t list, Error.t) result =
-  let* expr, rest = parse_factor tokens in
-  fold_left_if rest expr parse_factor term_ops
-
-and parse_factor tokens : (Ast.t * Token.t list, Error.t) result =
-  let* expr, rest = parse_unary tokens in
-  fold_left_if rest expr parse_unary factor_ops
-
-and parse_unary tokens : (Ast.t * Token.t list, Error.t) result =
-  match peek tokens with
-  | Some ({ typ = Token.MINUS }, rest) ->
+and parse_unary tokens =
+  match peek_op unary_ops tokens with
+  | Some (mk, rest) ->
     let* expr, rest = parse_unary rest in
-    Ok (Ast.Unary (Ast.Minus expr), rest)
-  | Some ({ typ = Token.BANG }, rest) ->
-    let* expr, rest = parse_unary rest in
-    Ok (Ast.Unary (Ast.Not expr), rest)
-  | _ -> parse_primary tokens
+    Ok (Ast.Unary (mk expr), rest)
+  | None -> parse_primary tokens
 
-and parse_primary tokens : (Ast.t * Token.t list, Error.t) result =
+and parse_primary tokens : parsed =
   match peek tokens with
-  | Some ({ typ = Token.TRUE }, rest) -> Ok (Ast.Lit Ast.True, rest)
-  | Some ({ typ = Token.FALSE }, rest) -> Ok (Ast.Lit Ast.False, rest)
-  | Some ({ typ = Token.NIL }, rest) -> Ok (Ast.Lit Ast.Nil, rest)
+  | Some ({ typ = Token.TRUE; _ }, rest) -> Ok (Ast.Lit Ast.True, rest)
+  | Some ({ typ = Token.FALSE; _ }, rest) -> Ok (Ast.Lit Ast.False, rest)
+  | Some ({ typ = Token.NIL; _ }, rest) -> Ok (Ast.Lit Ast.Nil, rest)
   | Some ({ typ; literal = Some lit; _ }, rest)
     when List.mem typ [ Token.STRING; Token.NUMBER ] ->
-    let expr =
-      match lit with
-      | Token.Num (Token.Int n) -> Ast.Num (Ast.Int n)
-      | Token.Num (Token.Float n) -> Ast.Num (Ast.Float n)
-      | Token.Str str -> Ast.Str str
-    in
-    Ok (Ast.Lit expr, rest)
-  | Some (tok, _) -> Error (err_at tok.line tok.line "not the expected token")
-  | None -> Error (err_at 1 1 "out of tokens?")
+    Ok (Ast.Lit (ast_lit_of_token_lit lit), rest)
+  | Some ({ typ = Token.LEFT_PAREN; _ }, rest) ->
+    let* expr, rest = parse_expression rest in
+    let* rest = expect Token.RIGHT_PAREN "expected ')' after expression" rest in
+    Ok (Ast.Grouping expr, rest)
+  | Some (tok, _) -> Error (err_at tok "not the expected token")
+  | None -> failwith "unreachable: token list must end with EOF"
+;;
+
+let parse tokens : (Ast.t, Error.t) result =
+  let* expr, rest = parse_expression tokens in
+  match peek rest with
+  | Some ({ typ = Token.EOF; _ }, []) -> Ok expr
+  | Some (tok, _) -> Error (err_at tok "unexpected token after expression")
+  | None -> failwith "unreachable: token list must end with EOF"
 ;;

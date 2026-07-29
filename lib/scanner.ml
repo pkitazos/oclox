@@ -126,7 +126,7 @@ let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) 
      NB: deviation from book, where a multi-line string
      carries the line of its closing quote. *)
     let lexeme = lexeme_until ctx'.idx in
-    let tok = Token.make ~typ ~lexeme ~literal:lit ~line:ctx.line in
+    let tok = Token.make ~typ ~lexeme ~literal:lit ~line:ctx.line ~column:ctx.column in
     Emit (tok, ctx')
   in
   let emit typ = Ok (emit_tok (advance ctx) typ) in
@@ -138,7 +138,7 @@ let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) 
   in
   match peek ctx with
   | None ->
-    let tok = Token.make ~typ:EOF ~lexeme:"" ~literal:None ~line:ctx.line in
+    let tok = Token.make ~typ:EOF ~lexeme:"" ~literal:None ~line:ctx.line ~column:ctx.column in
     Ok (List.rev (tok :: tokens))
   | Some c ->
     let res : (step, Error.t) result =

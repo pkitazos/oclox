@@ -1,7 +1,7 @@
 type t =
   | Lit of lit
   | Unary of unary
-  | Grouping of grouping
+  | Grouping of t
   | Binary of binary
 
 and num =
@@ -14,8 +14,6 @@ and lit =
   | True
   | False
   | Nil
-
-and grouping = Expr of t
 
 and unary =
   | Not of t

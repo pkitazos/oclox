@@ -3,6 +3,7 @@ type t =
   ; lexeme : string
   ; literal : lit option
   ; line : int
+  ; column : int
   }
 
 and num =
@@ -61,7 +62,7 @@ and token_typ =
   | EOF
 [@@deriving show]
 
-let make ~typ ~lexeme ~literal ~line = { typ; lexeme; literal; line }
+let make ~typ ~lexeme ~literal ~line ~column = { typ; lexeme; literal; line; column }
 
 let to_string token =
   Printf.sprintf
