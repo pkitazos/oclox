@@ -1,24 +1,53 @@
 let ( let* ) = Result.bind
 
+exception Invalid_token_stream
+exception Parse_error of Error.t
+
 let err_at (tok : Token.t) msg =
   Error.make ~kind:Parse ~line:tok.line ~column:tok.column msg
 ;;
 
-let peek (tokens : Token.t list) =
-  match tokens with
-  | tok :: rest -> Some (tok, rest)
-  | [] -> None
+(* [Scanner.scan_tokens] always emits a trailing [EOF]
+   so a well-formed token list is never empty.
+   peek relies on that invariant and is therefore total
+   an empty list means the invariant was broken upstream, which is a bug. *)
+let peek : Token.t list -> Token.t * Token.t list = function
+  | tok :: rest -> tok, rest
+  | [] -> raise Invalid_token_stream
+;;
+
+let is_stmt_start = function
+  | Token.CLASS
+  | Token.FUN
+  | Token.VAR
+  | Token.FOR
+  | Token.IF
+  | Token.WHILE
+  | Token.PRINT
+  | Token.RETURN -> true
+  | _ -> false
+;;
+
+let synchronize tokens =
+  (* Skip tokens until just past a ';' or just before a statement keyword,
+     so the parser can resume at a plausible boundary.
+     Always discards at least one token, which is what guarantees the caller's recovery loop
+     terminates. The book does this before the loop, since we don't have a `prev` check we do it after. *)
+  let rec loop tokens =
+    match peek tokens with
+    | { typ = Token.EOF; _ }, _ -> tokens
+    | { typ = Token.SEMICOLON; _ }, rest -> rest
+    | { typ; _ }, _ when is_stmt_start typ -> tokens
+    | _, rest -> loop rest
+  in
+  let _, rest = peek tokens in
+  loop rest
 ;;
 
 let expect typ msg tokens =
   match peek tokens with
-  | Some (tok, rest) when tok.typ = typ -> Ok rest
-  | Some (tok, _) -> Error (err_at tok msg)
-  (* Invariant: token lists always end with a single EOF token
-     this is guaranteed by [Scanner.scan_tokens]
-     Rules may therefore assume [peek] never returns None on well-formed input
-     a None means the invariant was broken. *)
-  | None -> failwith "unreachable: token list must end with EOF"
+  | tok, rest when tok.typ = typ -> Ok rest
+  | tok, _ -> Error (err_at tok msg)
 ;;
 
 let ast_lit_of_token_lit lit =
@@ -45,9 +74,8 @@ let unary_ops = [ Token.BANG, Ast.Not; Token.MINUS, Ast.Neg ]
 (* peek the next token and, if its type is in [ops],
    return the mapped value along with the remaining tokens *)
 let peek_op ops tokens =
-  match peek tokens with
-  | Some (tok, rest) -> Option.map (fun op -> op, rest) (List.assoc_opt tok.typ ops)
-  | None -> None
+  let tok, rest = peek tokens in
+  Option.map (fun op -> op, rest) (List.assoc_opt tok.typ ops)
 ;;
 
 (* [left_assoc ~ops ~next] parses  `next ( op next )*`  folding LEFT, so
@@ -106,24 +134,21 @@ and parse_unary tokens =
 
 and parse_primary tokens : parsed =
   match peek tokens with
-  | Some ({ typ = Token.TRUE; _ }, rest) -> Ok (Ast.Lit (Ast.Bool true), rest)
-  | Some ({ typ = Token.FALSE; _ }, rest) -> Ok (Ast.Lit (Ast.Bool false), rest)
-  | Some ({ typ = Token.NIL; _ }, rest) -> Ok (Ast.Lit Ast.Nil, rest)
-  | Some ({ typ; literal = Some lit; _ }, rest)
-    when List.mem typ [ Token.STRING; Token.NUMBER ] ->
-    Ok (Ast.Lit (ast_lit_of_token_lit lit), rest)
-  | Some ({ typ = Token.LEFT_PAREN; _ }, rest) ->
+  | { typ = Token.TRUE; _ }, rest -> Ok (Ast.Lit (Ast.Bool true), rest)
+  | { typ = Token.FALSE; _ }, rest -> Ok (Ast.Lit (Ast.Bool false), rest)
+  | { typ = Token.NIL; _ }, rest -> Ok (Ast.Lit Ast.Nil, rest)
+  | { typ; literal = Some lit; _ }, rest when List.mem typ [ Token.STRING; Token.NUMBER ]
+    -> Ok (Ast.Lit (ast_lit_of_token_lit lit), rest)
+  | { typ = Token.LEFT_PAREN; _ }, rest ->
     let* expr, rest = parse_expression rest in
     let* rest = expect Token.RIGHT_PAREN "expected ')' after expression" rest in
     Ok (Ast.Grouping expr, rest)
-  | Some (tok, _) -> Error (err_at tok "not the expected token")
-  | None -> failwith "unreachable: token list must end with EOF"
+  | tok, _ -> Error (err_at tok "not the expected token")
 ;;
 
 let parse tokens : (Ast.t, Error.t) result =
   let* expr, rest = parse_expression tokens in
   match peek rest with
-  | Some ({ typ = Token.EOF; _ }, []) -> Ok expr
-  | Some (tok, _) -> Error (err_at tok "unexpected token after expression")
-  | None -> failwith "unreachable: token list must end with EOF"
+  | { typ = Token.EOF; _ }, [] -> Ok expr
+  | tok, _ -> Error (err_at tok "unexpected token after expression")
 ;;
