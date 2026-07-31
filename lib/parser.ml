@@ -1,7 +1,6 @@
 let ( let* ) = Result.bind
 
 exception Invalid_token_stream
-exception Parse_error of Error.t
 
 let err_at (tok : Token.t) msg =
   Error.make ~kind:Parse ~line:tok.line ~column:tok.column msg

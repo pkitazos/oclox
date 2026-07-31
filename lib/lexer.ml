@@ -40,7 +40,7 @@ let is_alpha (c : char) : bool =
 
 let is_digit (c : char) : bool = c >= '0' && c <= '9'
 
-(* scanner internals *)
+(* lexer internals *)
 
 type ctx =
   { source : string
@@ -68,43 +68,43 @@ let matches (ctx : ctx) (c : char) : ctx option =
   if peek ctx = Some c then Some (advance ctx) else None
 ;;
 
-let err_at (ctx : ctx) msg = Error.make ~kind:Scan ~line:ctx.line ~column:ctx.column msg
+let err_at (ctx : ctx) msg = Error.make ~kind:Lex ~line:ctx.line ~column:ctx.column msg
 
-let rec scan_string (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
+let rec lex_string (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
   match peek ctx with
   | Some '"' -> Ok (advance ctx, string_of_chars chars)
-  | Some '\n' -> scan_string (advance_line ctx) ('\n' :: chars)
+  | Some '\n' -> lex_string (advance_line ctx) ('\n' :: chars)
   | Some '\\' ->
     (match peek (advance ctx) with
-     | Some 'n' -> scan_string (advance ~n:2 ctx) ('\n' :: chars)
-     | Some 't' -> scan_string (advance ~n:2 ctx) ('\t' :: chars)
-     | Some 'r' -> scan_string (advance ~n:2 ctx) ('\r' :: chars)
-     | Some '"' -> scan_string (advance ~n:2 ctx) ('"' :: chars)
-     | Some '\\' -> scan_string (advance ~n:2 ctx) ('\\' :: chars)
+     | Some 'n' -> lex_string (advance ~n:2 ctx) ('\n' :: chars)
+     | Some 't' -> lex_string (advance ~n:2 ctx) ('\t' :: chars)
+     | Some 'r' -> lex_string (advance ~n:2 ctx) ('\r' :: chars)
+     | Some '"' -> lex_string (advance ~n:2 ctx) ('"' :: chars)
+     | Some '\\' -> lex_string (advance ~n:2 ctx) ('\\' :: chars)
      | Some c ->
        (* js semantics where slash is ignored and next character survives *)
-       scan_string (advance ~n:2 ctx) (c :: chars)
-     | _ -> scan_string (advance ctx) ('\\' :: chars))
-  | Some char -> scan_string (advance ctx) (char :: chars)
+       lex_string (advance ~n:2 ctx) (c :: chars)
+     | _ -> lex_string (advance ctx) ('\\' :: chars))
+  | Some char -> lex_string (advance ctx) (char :: chars)
   | None -> Error (err_at ctx "unterminated string")
 ;;
 
-let rec scan_number (ctx : ctx) (chars : char list) (in_float : bool)
+let rec lex_number (ctx : ctx) (chars : char list) (in_float : bool)
   : (ctx * num, Error.t) result
   =
   match peek ctx with
-  | Some '.' when not in_float -> scan_number (advance ctx) ('.' :: chars) true
-  (* the book allows this to pass the scanner at least *)
+  | Some '.' when not in_float -> lex_number (advance ctx) ('.' :: chars) true
+  (* the book allows this to pass the lexer at least *)
   | Some '.' -> Error (err_at ctx "already in a float")
-  | Some c when is_digit c -> scan_number (advance ctx) (c :: chars) in_float
+  | Some c when is_digit c -> lex_number (advance ctx) (c :: chars) in_float
   (* same here *)
   | Some c when is_alpha c -> Error (err_at ctx "not a valid number")
   | _ -> Ok (ctx, num_of_chars chars in_float)
 ;;
 
-let rec scan_identifier (ctx : ctx) (chars : char list) : ctx * string =
+let rec lex_identifier (ctx : ctx) (chars : char list) : ctx * string =
   match peek ctx with
-  | Some c when is_alpha c || is_digit c -> scan_identifier (advance ctx) (c :: chars)
+  | Some c when is_alpha c || is_digit c -> lex_identifier (advance ctx) (c :: chars)
   | _ -> ctx, string_of_chars chars
 ;;
 
@@ -119,7 +119,7 @@ let rec consume_comment (ctx : ctx) : ctx =
   | Some _ -> consume_comment (advance ctx)
 ;;
 
-let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) result =
+let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) result =
   let lexeme_until idx' = String.sub ctx.source ctx.idx (idx' - ctx.idx) in
   let emit_tok ctx' ?lit typ : step =
     (* Tokens carry the line where their lexeme *starts*.
@@ -138,7 +138,9 @@ let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) 
   in
   match peek ctx with
   | None ->
-    let tok = Token.make ~typ:EOF ~lexeme:"" ~literal:None ~line:ctx.line ~column:ctx.column in
+    let tok =
+      Token.make ~typ:EOF ~lexeme:"" ~literal:None ~line:ctx.line ~column:ctx.column
+    in
     Ok (List.rev (tok :: tokens))
   | Some c ->
     let res : (step, Error.t) result =
@@ -169,15 +171,15 @@ let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) 
          | None -> emit SLASH)
       (* strings *)
       | '"' ->
-        scan_string (advance ctx) []
+        lex_string (advance ctx) []
         |> Result.map (fun (ctx', str) -> emit_tok ctx' STRING ~lit:(Str str))
       (* numbers *)
       | c when is_digit c ->
-        scan_number ctx [] false
+        lex_number ctx [] false
         |> Result.map (fun (ctx', num) -> emit_tok ctx' NUMBER ~lit:(Num num))
       (* keywords & identifiers *)
       | c when is_alpha c ->
-        let ctx', id = scan_identifier ctx [] in
+        let ctx', id = lex_identifier ctx [] in
         let typ =
           match StrMap.find_opt id keywords with
           | Some keyword -> keyword
@@ -188,9 +190,9 @@ let rec scan_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) 
       | c -> Error (err_at ctx ("unexpected character: " ^ String.make 1 c))
     in
     (match res with
-     | Ok (Emit (tok, ctx')) -> scan_loop ctx' (tok :: tokens)
-     | Ok (Skip ctx') -> scan_loop ctx' tokens
+     | Ok (Emit (tok, ctx')) -> lex_loop ctx' (tok :: tokens)
+     | Ok (Skip ctx') -> lex_loop ctx' tokens
      | Error err -> Error err)
 ;;
 
-let scan_tokens source = scan_loop { source; line = 1; column = 1; idx = 0 } []
+let lex source = lex_loop { source; line = 1; column = 1; idx = 0 } []

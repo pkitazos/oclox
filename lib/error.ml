@@ -6,7 +6,7 @@ type t =
   }
 
 and kind =
-  | Scan
+  | Lex
   | Parse
 
 let rec report (source : string) (err : t) =

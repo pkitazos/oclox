@@ -1,8 +1,16 @@
 open Oclox
 
+let ( let* ) = Result.bind
+
+let pipeline s =
+  let* tokens = Lexer.lex s in
+  let* expr = Parser.parse tokens in
+  Ok expr
+;;
+
 let run s =
-  match Scanner.scan_tokens s with
-  | Ok tokens -> List.iter Token.print tokens
+  match pipeline s with
+  | Ok expr -> print_endline (Ast.to_string expr)
   | Error err -> Error.report s err
 ;;
 

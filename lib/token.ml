@@ -73,5 +73,3 @@ let to_string token =
      | None -> ""
      | Some lit -> show_lit lit)
 ;;
-
-let print token = print_endline (to_string token)
