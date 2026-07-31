@@ -1,40 +1,37 @@
-type t =
-  | Lit of lit
-  | Unary of unary
-  | Grouping of t
-  | Binary of binary
-
-and num =
+type num =
   | Int of int
   | Float of float
 
-and lit =
+type lit =
   | Num of num
   | Str of string
-  | True
-  | False
+  | Bool of bool
   | Nil
 
-and unary =
-  | Not of t
-  | Minus of t
+type unop =
+  | Neg
+  | Not
 
-and binary =
-  { op : operator
-  ; left : t
-  ; right : t
-  }
-
-and operator =
+type binop =
   | Eq
-  | NEq
-  | LT
-  | LEq
-  | GT
-  | GEq
+  | Ne
+  | Lt
+  | Le
+  | Gt
+  | Ge
   | Add
   | Sub
   | Mul
   | Div
+
+type t =
+  | Lit of lit
+  | Grouping of t
+  | Unary of unop * t
+  | Binary of
+      { op : binop
+      ; left : t
+      ; right : t
+      }
 
 val to_string : t -> string

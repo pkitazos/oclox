@@ -28,19 +28,19 @@ let ast_lit_of_token_lit lit =
   | Token.Str str -> Ast.Str str
 ;;
 
-let equality_ops = [ Token.EQUAL_EQUAL, Ast.Eq; Token.BANG_EQUAL, Ast.NEq ]
+let equality_ops = [ Token.EQUAL_EQUAL, Ast.Eq; Token.BANG_EQUAL, Ast.Ne ]
 
 let comparison_ops =
-  [ Token.LESS, Ast.LT
-  ; Token.LESS_EQUAL, Ast.LEq
-  ; Token.GREATER, Ast.GT
-  ; Token.GREATER_EQUAL, Ast.GEq
+  [ Token.LESS, Ast.Lt
+  ; Token.LESS_EQUAL, Ast.Le
+  ; Token.GREATER, Ast.Gt
+  ; Token.GREATER_EQUAL, Ast.Ge
   ]
 ;;
 
 let term_ops = [ Token.PLUS, Ast.Add; Token.MINUS, Ast.Sub ]
 let factor_ops = [ Token.SLASH, Ast.Div; Token.STAR, Ast.Mul ]
-let unary_ops = [ (Token.BANG, fun e -> Ast.Not e); (Token.MINUS, fun e -> Ast.Minus e) ]
+let unary_ops = [ Token.BANG, Ast.Not; Token.MINUS, Ast.Neg ]
 
 (* peek the next token and, if its type is in [ops],
    return the mapped value along with the remaining tokens *)
@@ -99,15 +99,15 @@ and parse_factor tokens : parsed = left_assoc ~ops:factor_ops ~next:parse_unary 
 
 and parse_unary tokens =
   match peek_op unary_ops tokens with
-  | Some (mk, rest) ->
+  | Some (op, rest) ->
     let* expr, rest = parse_unary rest in
-    Ok (Ast.Unary (mk expr), rest)
+    Ok (Ast.Unary (op, expr), rest)
   | None -> parse_primary tokens
 
 and parse_primary tokens : parsed =
   match peek tokens with
-  | Some ({ typ = Token.TRUE; _ }, rest) -> Ok (Ast.Lit Ast.True, rest)
-  | Some ({ typ = Token.FALSE; _ }, rest) -> Ok (Ast.Lit Ast.False, rest)
+  | Some ({ typ = Token.TRUE; _ }, rest) -> Ok (Ast.Lit (Ast.Bool true), rest)
+  | Some ({ typ = Token.FALSE; _ }, rest) -> Ok (Ast.Lit (Ast.Bool false), rest)
   | Some ({ typ = Token.NIL; _ }, rest) -> Ok (Ast.Lit Ast.Nil, rest)
   | Some ({ typ; literal = Some lit; _ }, rest)
     when List.mem typ [ Token.STRING; Token.NUMBER ] ->
