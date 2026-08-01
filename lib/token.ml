@@ -5,6 +5,7 @@ type t =
   ; line : int
   ; column : int
   }
+[@@deriving show]
 
 and num =
   | Int of int
@@ -28,9 +29,8 @@ and token_typ =
   | PLUS
   | SEMICOLON
   | SLASH
-  | STAR
-  | (* One or two character tokens. *)
-    BANG
+  | STAR (* One or two character tokens. *)
+  | BANG
   | BANG_EQUAL
   | EQUAL
   | EQUAL_EQUAL
@@ -42,6 +42,8 @@ and token_typ =
     IDENTIFIER
   | STRING
   | NUMBER
+  | COMMENT
+  | MULTILINE_COMMENT
   | (* Keywords. *)
     AND
   | CLASS

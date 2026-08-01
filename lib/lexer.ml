@@ -68,6 +68,12 @@ let matches (ctx : ctx) (c : char) : ctx option =
   if peek ctx = Some c then Some (advance ctx) else None
 ;;
 
+let matches_both (ctx : ctx) (c1 : char) (c2 : char) : ctx option =
+  if peek ctx = Some c1 && peek (advance ctx) = Some c2
+  then Some (advance ~n:2 ctx)
+  else None
+;;
+
 let err_at (ctx : ctx) msg = Error.make ~kind:Lex ~line:ctx.line ~column:ctx.column msg
 
 let rec lex_string (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
@@ -112,11 +118,36 @@ type step =
   | Emit of Token.t * ctx
   | Skip of ctx
 
+(* for lossy parser *)
 let rec consume_comment (ctx : ctx) : ctx =
   match peek ctx with
   | None -> ctx
   | Some '\n' -> advance_line ctx
   | Some _ -> consume_comment (advance ctx)
+;;
+
+(* for lossless parser *)
+let rec lex_comment (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
+  match peek ctx with
+  | Some '\n' -> Ok (advance_line ctx, string_of_chars chars)
+  | Some char -> lex_comment (advance ctx) (char :: chars)
+  | None -> Ok (ctx, string_of_chars chars)
+;;
+
+let rec lex_multiline_comment (ctx : ctx) (chars : char list) (depth : int)
+  : (ctx * string, Error.t) result
+  =
+  match matches_both ctx '*' '/' with
+  | Some ctx' when depth = 0 -> Ok (ctx', string_of_chars chars)
+  | Some ctx' -> lex_multiline_comment ctx' ('/' :: '*' :: chars) (depth - 1)
+  | None ->
+    (match matches_both ctx '/' '*' with
+     | Some ctx' -> lex_multiline_comment ctx' ('*' :: '/' :: chars) (depth + 1)
+     | None ->
+       (match peek ctx with
+        | Some '\n' -> lex_multiline_comment (advance_line ctx) ('\n' :: chars) depth
+        | Some char -> lex_multiline_comment (advance ctx) (char :: chars) depth
+        | None -> Error (err_at ctx "unterminated multiline comment")))
 ;;
 
 let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) result =
@@ -128,6 +159,9 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
     let lexeme = lexeme_until ctx'.idx in
     let tok = Token.make ~typ ~lexeme ~literal:lit ~line:ctx.line ~column:ctx.column in
     Emit (tok, ctx')
+  in
+  let emit_str lexer typ ctx' =
+    lexer ctx' |> Result.map (fun (ctx'', s) -> emit_tok ctx'' typ ~lit:(Str s))
   in
   let emit typ = Ok (emit_tok (advance ctx) typ) in
   let skip ctx = Ok (Skip ctx) in
@@ -167,12 +201,14 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
       (* maybe comments *)
       | '/' ->
         (match matches (advance ctx) '/' with
-         | Some ctx' -> skip (consume_comment ctx')
-         | None -> emit SLASH)
-      (* strings *)
-      | '"' ->
-        lex_string (advance ctx) []
-        |> Result.map (fun (ctx', str) -> emit_tok ctx' STRING ~lit:(Str str))
+         | Some ctx' -> emit_str (fun c -> lex_comment c []) COMMENT ctx'
+         | None ->
+           (match matches (advance ctx) '*' with
+            | Some ctx' ->
+              emit_str (fun c -> lex_multiline_comment c [] 0) MULTILINE_COMMENT ctx'
+            | None -> emit SLASH))
+        (* strings *)
+      | '"' -> emit_str (fun c -> lex_string c []) STRING (advance ctx)
       (* numbers *)
       | c when is_digit c ->
         lex_number ctx [] false

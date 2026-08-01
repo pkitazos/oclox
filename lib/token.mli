@@ -24,6 +24,8 @@ type token_typ =
     IDENTIFIER
   | STRING
   | NUMBER
+  | COMMENT
+  | MULTILINE_COMMENT
   | (* Keywords. *)
     AND
   | CLASS
@@ -61,6 +63,7 @@ type t =
   ; line : int
   ; column : int
   }
+[@@deriving show]
 
 val make
   :  typ:token_typ
