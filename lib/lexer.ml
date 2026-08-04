@@ -119,38 +119,75 @@ type step =
   | Skip of ctx
 
 (* for lossy parser *)
-let rec consume_comment (ctx : ctx) : ctx =
+let rec consume_line_comment (ctx : ctx) : ctx =
   match peek ctx with
-  | None -> ctx
   | Some '\n' -> advance_line ctx
-  | Some _ -> consume_comment (advance ctx)
+  | Some _ -> consume_line_comment (advance ctx)
+  | None -> ctx
+;;
+
+let rec comment_loop (ctx : ctx) (depth : int) : (ctx, Error.t) result =
+  match matches_both ctx '*' '/' with
+  | Some ctx' when depth = 0 -> Ok ctx
+  | Some ctx' -> comment_loop ctx' (depth - 1)
+  | None ->
+    (match matches_both ctx '/' '*' with
+     | Some ctx' -> comment_loop ctx' (depth + 1)
+     | None ->
+       (match peek ctx with
+        | Some '\n' -> comment_loop (advance_line ctx) depth
+        | Some char -> comment_loop (advance ctx) depth
+        | None -> Error (err_at ctx "unterminated multiline comment")))
+;;
+
+let rec consume_block_comment ctx = consume_block_comment_loop ctx 0
+
+and consume_block_comment_loop (ctx : ctx) (depth : int) : (ctx, Error.t) result =
+  match matches_both ctx '*' '/' with
+  | Some ctx' when depth = 0 -> Ok ctx
+  | Some ctx' -> consume_block_comment_loop ctx' (depth - 1)
+  | None ->
+    (match matches_both ctx '/' '*' with
+     | Some ctx' -> consume_block_comment_loop ctx' (depth + 1)
+     | None ->
+       (match peek ctx with
+        | Some '\n' -> consume_block_comment_loop (advance_line ctx) depth
+        | Some char -> consume_block_comment_loop (advance ctx) depth
+        | None -> Error (err_at ctx "unterminated multiline comment")))
 ;;
 
 (* for lossless parser *)
-let rec lex_comment (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result =
+let rec lex_line_comment ctx = lex_line_comment_loop ctx []
+
+and lex_line_comment_loop (ctx : ctx) (chars : char list) : (ctx * string, Error.t) result
+  =
   match peek ctx with
   | Some '\n' -> Ok (advance_line ctx, string_of_chars chars)
-  | Some char -> lex_comment (advance ctx) (char :: chars)
+  | Some char -> lex_line_comment_loop (advance ctx) (char :: chars)
   | None -> Ok (ctx, string_of_chars chars)
 ;;
 
-let rec lex_multiline_comment (ctx : ctx) (chars : char list) (depth : int)
+let rec lex_block_comment ctx = lex_block_comment_loop ctx [] 0
+
+and lex_block_comment_loop (ctx : ctx) (chars : char list) (depth : int)
   : (ctx * string, Error.t) result
   =
   match matches_both ctx '*' '/' with
   | Some ctx' when depth = 0 -> Ok (ctx', string_of_chars chars)
-  | Some ctx' -> lex_multiline_comment ctx' ('/' :: '*' :: chars) (depth - 1)
+  | Some ctx' -> lex_block_comment_loop ctx' ('/' :: '*' :: chars) (depth - 1)
   | None ->
     (match matches_both ctx '/' '*' with
-     | Some ctx' -> lex_multiline_comment ctx' ('*' :: '/' :: chars) (depth + 1)
+     | Some ctx' -> lex_block_comment_loop ctx' ('*' :: '/' :: chars) (depth + 1)
      | None ->
        (match peek ctx with
-        | Some '\n' -> lex_multiline_comment (advance_line ctx) ('\n' :: chars) depth
-        | Some char -> lex_multiline_comment (advance ctx) (char :: chars) depth
+        | Some '\n' -> lex_block_comment_loop (advance_line ctx) ('\n' :: chars) depth
+        | Some char -> lex_block_comment_loop (advance ctx) (char :: chars) depth
         | None -> Error (err_at ctx "unterminated multiline comment")))
 ;;
 
-let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) result =
+let rec lex_loop (ctx : ctx) (tokens : Token.t list) (emit_trivia : bool)
+  : (Token.t list, Error.t) result
+  =
   let lexeme_until idx' = String.sub ctx.source ctx.idx (idx' - ctx.idx) in
   let emit_tok ctx' ?lit typ : step =
     (* Tokens carry the line where their lexeme *starts*.
@@ -170,6 +207,23 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
     | Some ctx' -> Ok (emit_tok ctx' matched)
     | None -> Ok (emit_tok (advance ctx) default)
   in
+  let handle_line_comment c =
+    if emit_trivia
+    then emit_str lex_line_comment COMMENT c
+    else skip (consume_line_comment c)
+  in
+  let handle_block_comment c =
+    (match (lex_block_comment c) with
+      | Ok (ctx, str) when emit_trivia -> Ok (emit_tok ctx MULTILINE_COMMENT ~lit:(Str str))
+      | Ok (ctx, _) -> skip ctx
+      | Error e -> Error e
+      )
+
+
+    (* if emit_trivia
+    then emit_str lex_block_comment MULTILINE_COMMENT c
+    else Result.bind (consume_block_comment c) skip *)
+  in
   match peek ctx with
   | None ->
     let tok =
@@ -177,7 +231,7 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
     in
     Ok (List.rev (tok :: tokens))
   | Some c ->
-    let res : (step, Error.t) result =
+    let res =
       match c with
       (* whitespace & friends *)
       | ' ' | '\r' | '\t' -> skip (advance ctx)
@@ -201,13 +255,12 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
       (* maybe comments *)
       | '/' ->
         (match matches (advance ctx) '/' with
-         | Some ctx' -> emit_str (fun c -> lex_comment c []) COMMENT ctx'
+         | Some ctx' -> handle_line_comment ctx'
          | None ->
            (match matches (advance ctx) '*' with
-            | Some ctx' ->
-              emit_str (fun c -> lex_multiline_comment c [] 0) MULTILINE_COMMENT ctx'
+            | Some ctx' -> handle_block_comment ctx'
             | None -> emit SLASH))
-        (* strings *)
+      (* strings *)
       | '"' -> emit_str (fun c -> lex_string c []) STRING (advance ctx)
       (* numbers *)
       | c when is_digit c ->
@@ -226,8 +279,8 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) : (Token.t list, Error.t) r
       | c -> Error (err_at ctx ("unexpected character: " ^ String.make 1 c))
     in
     (match res with
-     | Ok (Emit (tok, ctx')) -> lex_loop ctx' (tok :: tokens)
-     | Ok (Skip ctx') -> lex_loop ctx' tokens
+     | Ok (Emit (tok, ctx')) -> lex_loop ctx' (tok :: tokens) emit_trivia
+     | Ok (Skip ctx') -> lex_loop ctx' tokens emit_trivia
      | Error err -> Error err)
 ;;
 
