@@ -42,8 +42,8 @@ and token_typ =
     IDENTIFIER
   | STRING
   | NUMBER
-  | COMMENT
-  | MULTILINE_COMMENT
+  | LINE_COMMENT
+  | BLOCK_COMMENT
   | (* Keywords. *)
     AND
   | CLASS

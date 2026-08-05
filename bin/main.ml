@@ -3,7 +3,7 @@ open Oclox
 let ( let* ) = Result.bind
 
 let pipeline s =
-  let* tokens = Lexer.lex s in
+  let* tokens = Lexer.lex s ~emit_trivia:false in
   let* expr = Parser.parse tokens in
   Ok expr
 ;;

@@ -1,1 +1,1 @@
-val lex : string -> (Token.t list, Error.t) result
+val lex : string -> emit_trivia:bool -> (Token.t list, Error.t) result
