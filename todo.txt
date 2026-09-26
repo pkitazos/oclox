@@ -1,0 +1,8 @@
+allow parser to handle trivia
+write tests to catch regressions during refactors
+multi-line comments
+nested multi-line comments
+formatter / pretty printer
+comma operator
+ternary operator
+error productions for binary operator parse error
