@@ -145,7 +145,15 @@ and parse_primary tokens : parsed =
   | tok, _ -> Error (err_at tok "not the expected token")
 ;;
 
+let is_trivia (tok : Token.t) =
+  match tok.typ with
+  | Token.LINE_COMMENT | Token.BLOCK_COMMENT -> true
+  | _ -> false
+;;
+
+(* Trivia is only emitted by the lexer *)
 let parse tokens : (Ast.t, Error.t) result =
+  let tokens = List.filter (fun tok -> not (is_trivia tok)) tokens in
   let* expr, rest = parse_expression tokens in
   match peek rest with
   | { typ = Token.EOF; _ }, [] -> Ok expr
