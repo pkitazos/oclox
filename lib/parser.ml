@@ -6,7 +6,7 @@ let err_at (tok : Token.t) msg =
   Error.make ~kind:Parse ~line:tok.line ~column:tok.column msg
 ;;
 
-(* [Scanner.scan_tokens] always emits a trailing [EOF]
+(* [Lexer.lex] always emits a trailing [EOF]
    so a well-formed token list is never empty.
    peek relies on that invariant and is therefore total
    an empty list means the invariant was broken upstream, which is a bug. *)
@@ -81,17 +81,27 @@ let peek_op ops tokens =
    1 - 2 - 3 becomes ((1 - 2) - 3).
    Right-associative operators would need a different combinator. *)
 
-let left_assoc ~ops ~next tokens =
+let left_assoc
+      ~(ops : (Token.token_typ * 'op) list)
+      ~(mk : 'op -> Ast.t -> Ast.t -> Ast.t)
+      ~next
+      tokens
+  =
   let rec fold tokens acc =
-    let parser tokens acc = fold tokens acc in
     match peek_op ops tokens with
     | Some (op, rest) ->
       let* expr, rest = next rest in
-      parser rest (Ast.Binary { left = acc; op; right = expr })
+      fold rest (mk op acc expr)
     | None -> Ok (acc, tokens)
   in
   let* expr, rest = next tokens in
   fold rest expr
+;;
+
+let binary op left right = Ast.Binary { op; left; right }
+
+let is_binary_op typ =
+  List.exists (List.mem_assoc typ) [ equality_ops; comparison_ops; term_ops; factor_ops ]
 ;;
 
 (* Each rule consumes a prefix of [tokens]
@@ -102,27 +112,51 @@ let left_assoc ~ops ~next tokens =
 type parsed = (Ast.t * Token.t list, Error.t) result
 
 (*
-    expression     → equality ;
-    equality       → comparison ( ( "!=" | "==" ) comparison )* ;
-    comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    term           → factor ( ( "-" | "+" ) factor )* ;
-    factor         → unary ( ( "/" | "*" ) unary )* ;
-    unary          → ( "!" | "-" ) unary
-                   | primary ;
-    primary        → NUMBER | STRING | "true" | "false" | "nil"
-                   | "(" expression ")" ;
+    expression    -> comma ;
+    comma         -> ternary ( "," ternary )* ;
+    ternary       -> equality ( "?" expression ":" ternary )? ;
+    equality      -> comparison ( ( "!=" | "==" ) comparison )* ;
+    comparison    -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+    term          -> factor ( ( "-" | "+" ) factor )* ;
+    factor        -> unary ( ( "/" | "*" ) unary )* ;
+    unary         -> ( "!" | "-" ) unary
+                  | primary ;
+    primary       -> NUMBER | STRING | "true" | "false" | "nil"
+                  | "(" expression ")" ;
 *)
 
-let rec parse_expression tokens : parsed = parse_equality tokens
+let rec parse_expression tokens : parsed = parse_comma tokens
+
+and parse_comma tokens =
+  left_assoc
+    ~ops:[ Token.COMMA, () ]
+    ~mk:(fun () left right -> Ast.Sequence { left; right })
+    ~next:parse_ternary
+    tokens
+
+and parse_ternary tokens : parsed =
+  let* cond, rest = parse_equality tokens in
+  match peek rest with
+  | { typ = Token.QUESTION; _ }, rest ->
+    (* delimited by '?' and ':', so any expression fits *)
+    let* then_, rest = parse_expression rest in
+    let* rest = expect Token.COLON "expected ':' in ternary" rest in
+    (* and here is the right-associativity *)
+    let* else_, rest = parse_ternary rest in
+    Ok (Ast.Ternary { cond; then_; else_ }, rest)
+  | _ -> Ok (cond, rest)
 
 and parse_equality tokens : parsed =
-  left_assoc ~ops:equality_ops ~next:parse_comparison tokens
+  left_assoc ~ops:equality_ops ~mk:binary ~next:parse_comparison tokens
 
 and parse_comparison tokens : parsed =
-  left_assoc ~ops:comparison_ops ~next:parse_term tokens
+  left_assoc ~ops:comparison_ops ~mk:binary ~next:parse_term tokens
 
-and parse_term tokens : parsed = left_assoc ~ops:term_ops ~next:parse_factor tokens
-and parse_factor tokens : parsed = left_assoc ~ops:factor_ops ~next:parse_unary tokens
+and parse_term tokens : parsed =
+  left_assoc ~ops:term_ops ~mk:binary ~next:parse_factor tokens
+
+and parse_factor tokens : parsed =
+  left_assoc ~ops:factor_ops ~mk:binary ~next:parse_unary tokens
 
 and parse_unary tokens =
   match peek_op unary_ops tokens with
@@ -142,6 +176,8 @@ and parse_primary tokens : parsed =
     let* expr, rest = parse_expression rest in
     let* rest = expect Token.RIGHT_PAREN "expected ')' after expression" rest in
     Ok (Ast.Grouping expr, rest)
+  | tok, _ when is_binary_op tok.typ ->
+    Error (err_at tok (Printf.sprintf "missing left-hand operand for '%s'" tok.lexeme))
   | tok, _ -> Error (err_at tok "not the expected token")
 ;;
 

@@ -9,6 +9,8 @@ type token_typ =
   | MINUS
   | PLUS
   | SEMICOLON
+  | COLON
+  | QUESTION
   | SLASH
   | STAR
   | (* One or two character tokens. *)

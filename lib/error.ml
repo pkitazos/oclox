@@ -25,3 +25,4 @@ and get_error_line source line_num =
 and annotate_error_line line col_num = String.make (col_num - 1) ' ' ^ "^"
 
 let make ~kind ~line ~column msg = { kind; line; column; msg }
+let msg err = err.msg

@@ -33,5 +33,14 @@ type t =
       ; left : t
       ; right : t
       }
+  | Sequence of
+      { left : t
+      ; right : t
+      }
+  | Ternary of
+      { cond : t
+      ; then_ : t
+      ; else_ : t
+      }
 
 val to_string : t -> string

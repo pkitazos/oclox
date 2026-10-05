@@ -37,6 +37,16 @@ type t =
       ; left : t
       ; right : t
       }
+    (* the comma operator: a, b *)
+  | Sequence of
+      { left : t
+      ; right : t
+      }
+  | Ternary of
+      { cond : t
+      ; then_ : t
+      ; else_ : t
+      }
 [@@deriving show]
 
 let rec to_string = function
@@ -46,6 +56,14 @@ let rec to_string = function
   | Unary (Neg, e) -> Printf.sprintf "(- %s)" (to_string e)
   | Binary { op; left; right } ->
     Printf.sprintf "(%s %s %s)" (op_to_string op) (to_string left) (to_string right)
+  | Sequence { left; right } ->
+    Printf.sprintf "(, %s %s)" (to_string left) (to_string right)
+  | Ternary { cond; then_; else_ } ->
+    Printf.sprintf
+      "(? %s %s %s)"
+      (to_string cond)
+      (to_string then_)
+      (to_string else_)
 
 and lit_to_string expr =
   match expr with

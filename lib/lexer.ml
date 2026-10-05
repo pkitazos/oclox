@@ -217,6 +217,8 @@ let rec lex_loop (ctx : ctx) (tokens : Token.t list) ~emit_trivia
       | '-' -> emit MINUS
       | '+' -> emit PLUS
       | ';' -> emit SEMICOLON
+      | ':' -> emit COLON
+      | '?' -> emit QUESTION
       | '*' -> emit STAR
       (* maybe two-char operators *)
       | '!' -> emit_op '=' ~default:BANG ~matched:BANG_EQUAL
