@@ -37,3 +37,6 @@ _opam/
 
 # scratch files
 scratch.lox
+
+# direnv cache
+.direnv/

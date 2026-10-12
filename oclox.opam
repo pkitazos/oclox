@@ -10,7 +10,7 @@ homepage: "https://github.com/pkitazos/oclox"
 doc: "https://url/to/documentation"
 bug-reports: "https://github.com/pkitazos/oclox/issues"
 depends: [
-  "dune" {>= "3.23"}
+  "dune" {>= "3.21"}
   "ocaml"
   "odoc" {with-doc}
 ]
